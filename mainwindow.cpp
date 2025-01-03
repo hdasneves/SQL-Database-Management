@@ -11,6 +11,9 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
+    if (db.isOpen()) {
+        db.close();
+    }
     delete ui;
 }
 
@@ -63,7 +66,6 @@ void MainWindow::afficher_donnees()
 
     QString create_table = "CREATE TABLE IF NOT EXISTS transactions("
                           "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                          "date VARCHAR(20),"
                           "ticker VARCHAR(10) NOT NULL,"
                           "typeact VARCHAR(15) NOT NULL,"
                           "price DOUBLE,"
@@ -74,7 +76,7 @@ void MainWindow::afficher_donnees()
         return;
     }
 
-    QList<QString> col({"id", "date", "ticker", "typeact", "price", "quantity"});
+    QList<QString> col({"id", "ticker", "typeact", "price", "quantity"});
 
     model = new QSqlTableModel(this, db); //association d'un modèle à une database sql
     model->setTable("transactions");
@@ -155,7 +157,6 @@ void MainWindow::modify_row(int index)
 {
     QSqlRecord record = model->record(index);
     QList<QVariant> val({
-        record.value("date"),
         record.value("ticker"),
         record.value("typeact"),
         record.value("price"),
@@ -166,9 +167,9 @@ void MainWindow::modify_row(int index)
     QMap<QString, QVariant> initial_values;
 
 
-    QList<QString> col({"date", "ticker", "typeact", "price", "quantity"});
+    QList<QString> col({"ticker", "typeact", "price", "quantity"});
 
-    for (int i = 0; i < 5; i++){
+    for (int i = 0; i < 4; i++){
         initial_values.insert(col[i], val[i]);
     }
 
@@ -180,8 +181,7 @@ void MainWindow::modify_row(int index)
     }
 
     QSqlQuery mod(db);
-    mod.prepare("UPDATE transactions SET date = :date, ticker = :ticker, typeact = :typeact, price = :price, quantity = :quantity WHERE id = :id");
-    mod.bindValue(":date", values["date"].toDate());
+    mod.prepare("UPDATE transactions SET ticker = :ticker, typeact = :typeact, price = :price, quantity = :quantity WHERE id = :id");
     mod.bindValue(":ticker", values["ticker"].toString());
 
     mod.bindValue(":typeact", values["typeact"].toString());
@@ -220,20 +220,17 @@ QMap<QString, QVariant> MainWindow::dialog_box(const QMap<QString, QVariant> &in
     QDialog dialog(this); //création d'une boîte de dialogue
     dialog.setWindowTitle("Ajouter une transaction");
 
-    QDateEdit *date_tr = new QDateEdit(QDate::currentDate(), &dialog); //Création des widgets qui seront mis dans l'interface (&dialog) permet de supprimer les pointers après la fermeture de la boîte de dialogues
-    QLineEdit *ticker = new QLineEdit(&dialog);
+    QLineEdit *ticker = new QLineEdit(&dialog); //Création des widgets qui seront mis dans l'interface (&dialog) permet de supprimer les pointers après la fermeture de la boîte de dialogues
     QComboBox *type_dactif = new QComboBox(&dialog);
     QDoubleSpinBox *prix = new QDoubleSpinBox(&dialog);
     QSpinBox *quantite = new QSpinBox(&dialog);
 
-    date_tr->setMaximumDate(QDate::currentDate());
     type_dactif->addItems({"Actions", "Obligations", "ETF", "Cash"});
     prix->setRange(0.0, 1000.0);
     prix->setDecimals(2);
     quantite->setMinimum(0);
 
     if (!initial_values.isEmpty()) { //dans le cas où on modifie une ligne, on rajoute les valeurs présentes dans celle-ci
-        date_tr->setDate(initial_values["date"].toDate());
         ticker->setText(initial_values["ticker"].toString());
         type_dactif->setCurrentText(initial_values["typeact"].toString());
         prix->setValue(initial_values["price"].toDouble());
@@ -242,7 +239,6 @@ QMap<QString, QVariant> MainWindow::dialog_box(const QMap<QString, QVariant> &in
 
 
     QFormLayout *dispo = new QFormLayout(&dialog); //utilisation d'un QFormLayout pour agencer les widgets
-    dispo->addRow("Date :", date_tr);
     dispo->addRow("Ticker :", ticker);
     dispo->addRow("Type d'actif", type_dactif);
     dispo->addRow("Prix :", prix);
@@ -272,7 +268,6 @@ QMap<QString, QVariant> MainWindow::dialog_box(const QMap<QString, QVariant> &in
     });
 
     if (dialog.exec() == QDialog::Accepted) { //retourne un dictionnaire avec les valeurs afin de faire la requête SQL
-        result["date"] = date_tr->date();
         result["ticker"] = ticker->text();
         result["typeact"] = type_dactif->currentText();
         result["price"] = prix->value();
@@ -294,10 +289,9 @@ void MainWindow::on_add_row_clicked()
 
     QSqlQuery add(db);
 
-    add.prepare("INSERT INTO transactions (date, ticker, typeact, price, quantity)"
-                "VALUES(:date, :ticker, :typeact, :price, :quantity)");
+    add.prepare("INSERT INTO transactions (ticker, typeact, price, quantity)"
+                "VALUES(:ticker, :typeact, :price, :quantity)");
 
-    add.bindValue(":date", values["date"].toString());
     add.bindValue(":ticker", values["ticker"].toString());
     add.bindValue(":typeact", values["typeact"].toString());
     add.bindValue(":price", values["price"].toDouble());

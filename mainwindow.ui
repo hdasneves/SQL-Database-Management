@@ -106,7 +106,7 @@
          </property>
          <widget class="QWidget" name="Analyse_pf">
           <attribute name="title">
-           <string>Répartition séctorielle</string>
+           <string>Répartition par type d'actif</string>
           </attribute>
           <layout class="QHBoxLayout" name="horizontalLayout_2">
            <item>
@@ -119,20 +119,20 @@
              </property>
              <layout class="QHBoxLayout" name="horizontalLayout_3">
               <item>
-               <widget class="QChartView" name="graph_sectoriel"/>
+               <widget class="QChartView" name="graph_type"/>
               </item>
              </layout>
             </widget>
            </item>
           </layout>
          </widget>
-         <widget class="QWidget" name="vue_transac">
+         <widget class="QWidget" name="vue_portf">
           <attribute name="title">
            <string>Vue des transactions</string>
           </attribute>
           <layout class="QVBoxLayout" name="verticalLayout_3">
            <item>
-            <widget class="QTableView" name="transactions">
+            <widget class="QTableView" name="portf">
              <property name="sizePolicy">
               <sizepolicy hsizetype="Ignored" vsizetype="Ignored">
                <horstretch>0</horstretch>

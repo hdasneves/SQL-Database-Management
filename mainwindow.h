@@ -5,15 +5,10 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QtSql>
-#include <QInputDialog>
-#include <QDateEdit>
-#include <QFormLayout>
-#include <QDoubleSpinBox>
-#include <QSpinBox>
-#include <QDialogButtonBox>
 #include <QModelIndex>
 #include <QMenu>
 #include <QtCharts>
+#include "database_management.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -28,8 +23,6 @@ class MainWindow : public QMainWindow
 public:
     MainWindow(QWidget *parent = nullptr);
 
-    ~MainWindow();
-
 private slots:
     void on_choix_db_clicked();
     void on_add_row_clicked();
@@ -38,7 +31,7 @@ private slots:
 
 private:
     Ui::MainWindow *ui;
-    QSqlDatabase db;
+    Database_management *db_manag;
     QSqlTableModel *model = nullptr;
 
     void afficher_donnees();
@@ -47,6 +40,5 @@ private:
     void show_context_menu(const QPoint &pos);
     void modify_row(int index);
     void delete_row(int index);
-    QMap<QString, QVariant> dialog_box(const QMap<QString, QVariant> &initialValues);
 };
 #endif // MAINWINDOW_H

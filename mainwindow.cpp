@@ -1,5 +1,7 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include "database_management.h"
+#include "dialog_box.h"
 
 
 MainWindow::MainWindow(QWidget *parent)
@@ -7,15 +9,9 @@ MainWindow::MainWindow(QWidget *parent)
     , ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
+    db_manag = new Database_management(this);
 }
 
-MainWindow::~MainWindow()
-{
-    if (db.isOpen()) {
-        db.close();
-    }
-    delete ui;
-}
 
 void MainWindow::on_choix_db_clicked() //fonction qui prend en compte la database choisie, vérifie si elle est ouvrable puis actualise le label qui informe l'utilisateur du chemin d'accès chosit
 {
@@ -25,32 +21,18 @@ void MainWindow::on_choix_db_clicked() //fonction qui prend en compte la databas
         return;
     }
 
-    ui->affich_db->setText("Base de donnée sélectionnée : " + filename);
-
-    if (model) {
+    if (model) { //remplace le modèle prééxistant s'il y en a déjà un
         delete model;
         model = nullptr;
     }
 
-    if (QSqlDatabase::contains(QSqlDatabase::defaultConnection)) { //supprime la connexion s'il y en a déjà une
-        {
-            QSqlDatabase db = QSqlDatabase::database(QSqlDatabase::defaultConnection);
-            db.close();
-        }
-        QSqlDatabase::removeDatabase(QSqlDatabase::defaultConnection);
-    }
-
-    QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE"); //Ajout de la base de données (type de fichier : SQLite, localisation : filename)
-    db.setDatabaseName(filename);
-
-    if (!db.open()){ //Vérifie si le fichier éxiste bien et est ouvrable
-        QMessageBox::critical(this, QObject::tr("Erreur dans l'ouverture de la base de données"), "Impossible d'ouvrir la base de données !");
+    if (!db_manag->open_database(filename)){
+        QMessageBox::critical(this, QObject::tr("Erreur dans l'ouverture de la base de données"), "Impossible d'ouvrir la base de données !" + db_manag->get_db().lastError().text());
         return;
     }
-    else{
-        QMessageBox::information(this, QObject::tr("Base ouverte"), "Vôtre base de données a été chargée avec succès !");
-    }
+    QMessageBox::information(this, QObject::tr("Base de données ouverte !"), "Vôtre base de donnée a été importée !");
 
+    ui->affich_db->setText("Base de donnée sélectionnée : " + filename);
     afficher_donnees();
     create_graph();
 }
@@ -62,60 +44,37 @@ void MainWindow::afficher_donnees()
     }
 
 
-    QSqlQuery table_creation(db); //créer une variable permettant de recueillir
 
-    QString create_table = "CREATE TABLE IF NOT EXISTS transactions("
-                          "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                          "ticker VARCHAR(10) NOT NULL,"
-                          "typeact VARCHAR(15) NOT NULL,"
-                          "price DOUBLE,"
-                          "quantity INTEGER)";
-
-    if (!table_creation.exec(create_table)){ //si erreur lors du query
-        QMessageBox::critical(this, "Erreur", "Impossible de créer la table : " + table_creation.lastError().text());
+    if (!db_manag->create_tables()){
+        QMessageBox::critical(this, "Erreur", "Impossible de créer la table : " + db_manag->get_db().lastError().text());
         return;
     }
-
-    QList<QString> col({"id", "ticker", "typeact", "price", "quantity"});
-
-    model = new QSqlTableModel(this, db); //association d'un modèle à une database sql
-    model->setTable("transactions");
+    model = new QSqlTableModel(this, db_manag->get_db()); //association d'un modèle à une database sql
+    model->setTable("portfolio");
     model->select();
+
+    QList<QString> col({"id", "ticker", "typeact", "amount"});
 
     for (int i = 0; i < col.length(); i++){ //ajoute les en-têtes de colonne
         model->setHeaderData(i, Qt::Horizontal, col[i]);
     }
 
-    ui->transactions->setModel(model); //ajoute le modèle SQL au TableView
-    ui->transactions->setEditTriggers(QAbstractItemView::NoEditTriggers); //fais en sorte que les données ne soient pas modifiables manuellement
-    ui->transactions->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    ui->transactions->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(ui->transactions, &QTableView::customContextMenuRequested, this, &MainWindow::show_context_menu);
+    ui->portf->setModel(model); //ajoute le modèle SQL au TableView
+    ui->portf->setEditTriggers(QAbstractItemView::NoEditTriggers); //fais en sorte que les données ne soient pas modifiables manuellement
+    ui->portf->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    ui->portf->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(ui->portf, &QTableView::customContextMenuRequested, this, &MainWindow::show_context_menu);
 }
 
 void MainWindow::create_graph()
 {
     if (model->rowCount() == 0) {
         QChart *emptyChart = new QChart();
-        ui->graph_sectoriel->setChart(emptyChart);
-    }
-
-
-
-    QSqlQuery query(db);
-    query.prepare("SELECT typeact, COUNT(*) AS nombre FROM transactions GROUP BY typeact");
-    QMap<QString, int> dict;
-
-    if (query.exec()) {
-        while (query.next()) {
-            QString typeact = query.value(0).toString();
-            int count = query.value(1).toInt();
-            dict.insert(typeact, count);
-    }
-    } else {
-        qWarning() << "Erreur lors de la requête : " << query.lastError().text();
+        ui->graph_type->setChart(emptyChart);
         return;
     }
+
+    QMap<QString, double> dict = db_manag->get_graph_data();
 
     QPieSeries *series = new QPieSeries(this);
 
@@ -130,12 +89,12 @@ void MainWindow::create_graph()
     chart->setTitle("Répartition sectorielle des différents actifs");
     chart->legend()->hide();
 
-    ui->graph_sectoriel->setChart(chart);
+    ui->graph_type->setChart(chart);
 }
 
 void MainWindow::show_context_menu(const QPoint &pos) //fonction qui prend la position du curseur de l'individu lorsqu'il clique droit et permet de lancer les fonctions pour modifier ou supprimer
 {
-    QModelIndex index = ui->transactions->indexAt(pos);
+    QModelIndex index = ui->portf->indexAt(pos);
 
     QMenu modif_ou_suppr(this); //Création du menu et des boutons
 
@@ -149,7 +108,7 @@ void MainWindow::show_context_menu(const QPoint &pos) //fonction qui prend la po
     modif_ou_suppr.addAction(modifier); //ajoute les boutons modifier et supprimer au menu
     modif_ou_suppr.addAction(supprimer);
 
-    modif_ou_suppr.exec(ui->transactions->viewport()->mapToGlobal(pos));
+    modif_ou_suppr.exec(ui->portf->viewport()->mapToGlobal(pos));
 
 }
 
@@ -159,41 +118,39 @@ void MainWindow::modify_row(int index)
     QList<QVariant> val({
         record.value("ticker"),
         record.value("typeact"),
-        record.value("price"),
-        record.value("quantity"),
+        record.value("amount"),
+        record.value("id")
     });
 
+    if (val[3] == 0){
+        QMessageBox::critical(this, "Erreur dans la modification", "Veuillez choisir une ligne valable");
+        return;
+    }
+
+    qInfo() << val;
 
     QMap<QString, QVariant> initial_values;
-
-
-    QList<QString> col({"ticker", "typeact", "price", "quantity"});
+    QList<QString> col({"ticker", "typeact", "amount", "id"});
 
     for (int i = 0; i < 4; i++){
         initial_values.insert(col[i], val[i]);
     }
 
+    Dialog_box dialog(this, initial_values);
 
-    QMap<QString, QVariant> values =  dialog_box(initial_values);
+    if (dialog.exec() == QDialog::Accepted) {
+        QMap<QString, QVariant> values = dialog.get_result();
+        if (values.isEmpty()) {
+            return;
+        }
+        if (!db_manag->update_table(values["ticker"].toString(), values["typeact"].toString(), values["amount"].toDouble(), val[3].toInt())){
+            QMessageBox::critical(this, "Erreur dans la modification", "Erreur dans la modification");
+        }
 
-    if (values.isEmpty()){
-        return;
+        model->select();
+        create_graph();
     }
 
-    QSqlQuery mod(db);
-    mod.prepare("UPDATE transactions SET ticker = :ticker, typeact = :typeact, price = :price, quantity = :quantity WHERE id = :id");
-    mod.bindValue(":ticker", values["ticker"].toString());
-
-    mod.bindValue(":typeact", values["typeact"].toString());
-    mod.bindValue(":price", values["price"].toDouble());
-    mod.bindValue(":quantity", values["quantity"].toInt());
-    mod.bindValue(":id", record.value("id"));
-
-    if (!mod.exec()){
-        QMessageBox::critical(this, "Erreur", "La modification a échoué : " + mod.lastError().text());
-    }
-    model->select();
-    create_graph();
 }
 
 
@@ -203,106 +160,39 @@ void MainWindow::delete_row(int index)
     QSqlRecord record = model->record(index);
     QVariant ind = record.value("id");
 
-    QSqlQuery suppr(db);
-    suppr.prepare("DELETE FROM transactions WHERE id = :id");
-    suppr.bindValue(":id", ind);
-
-
-    if (!suppr.exec()){
-        QMessageBox::critical(this, "Erreur", "La suppression a échoué : " + suppr.lastError().text());
+    if (!db_manag->delete_row(ind.toInt())){
+        QMessageBox::critical(this, "Impossible de supprimer la ligne", "Impossible de supprimer la ligne");
     }
+
+
+
     model->select();
     create_graph();
 }
 
-QMap<QString, QVariant> MainWindow::dialog_box(const QMap<QString, QVariant> &initial_values) //automatise la sortie de la dialogbox
-{
-    QDialog dialog(this); //création d'une boîte de dialogue
-    dialog.setWindowTitle("Ajouter une transaction");
-
-    QLineEdit *ticker = new QLineEdit(&dialog); //Création des widgets qui seront mis dans l'interface (&dialog) permet de supprimer les pointers après la fermeture de la boîte de dialogues
-    QComboBox *type_dactif = new QComboBox(&dialog);
-    QDoubleSpinBox *prix = new QDoubleSpinBox(&dialog);
-    QSpinBox *quantite = new QSpinBox(&dialog);
-
-    type_dactif->addItems({"Actions", "Obligations", "ETF", "Cash"});
-    prix->setRange(0.0, 1000.0);
-    prix->setDecimals(2);
-    quantite->setMinimum(0);
-
-    if (!initial_values.isEmpty()) { //dans le cas où on modifie une ligne, on rajoute les valeurs présentes dans celle-ci
-        ticker->setText(initial_values["ticker"].toString());
-        type_dactif->setCurrentText(initial_values["typeact"].toString());
-        prix->setValue(initial_values["price"].toDouble());
-        quantite->setValue(initial_values["quantity"].toInt());
-    }
-
-
-    QFormLayout *dispo = new QFormLayout(&dialog); //utilisation d'un QFormLayout pour agencer les widgets
-    dispo->addRow("Ticker :", ticker);
-    dispo->addRow("Type d'actif", type_dactif);
-    dispo->addRow("Prix :", prix);
-    dispo->addRow("Quantité :", quantite);
-
-    QWidget *formWidget = new QWidget(&dialog); //insertion de la disposition dans un formwidget qui nous permettra d'avoir les widgets
-    formWidget->setLayout(dispo);
-
-    QDialogButtonBox *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog); //insertion des boutons annuler et confirmer
-    connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-
-    QVBoxLayout *mainLayout = new QVBoxLayout(&dialog); //combinaison du formwidget et des boutons pour l'interface finale
-    mainLayout->addWidget(formWidget);
-    mainLayout->addWidget(buttonBox);
-
-    dialog.setLayout(mainLayout); //ajout du tout à la boîte de dialogue
-
-    QMap<QString, QVariant> result;
-
-
-    connect(buttonBox, &QDialogButtonBox::accepted, [&]() {
-        if (ticker->text().isEmpty() || prix->value() == 0 || quantite->value() == 0) {
-            QMessageBox::warning(&dialog, "Champ requis", "Les champs 'Ticker', 'Prix' et 'quantité' ne peut pas être vide ou égal à 0");
-        } else {
-            dialog.accept();
-        }
-    });
-
-    if (dialog.exec() == QDialog::Accepted) { //retourne un dictionnaire avec les valeurs afin de faire la requête SQL
-        result["ticker"] = ticker->text();
-        result["typeact"] = type_dactif->currentText();
-        result["price"] = prix->value();
-        result["quantity"] = quantite->value();
-    }
-    return result;
-}
 
 void MainWindow::on_add_row_clicked()
 {
 
-
     const QMap<QString, QVariant> initial_value;
-    QMap<QString, QVariant> values = dialog_box(initial_value);
+    Dialog_box dialog(this , initial_value);
 
-    if (values.isEmpty()){
-        return;
+
+    if (dialog.exec() == QDialog::Accepted) {
+
+        QMap<QString, QVariant> values = dialog.get_result();
+
+        if (values.isEmpty()){
+            return;
+        }
+
+        if(!db_manag->add_row(values["ticker"].toString(), values["typeact"].toString(), values["amount"].toDouble())){
+            QMessageBox::critical(this, "Problème lors de l'ajout", "Erreur lors de l'ajout : database probablement non ouverte !");
+        }
+
+        model->select();
+        create_graph();
     }
-
-    QSqlQuery add(db);
-
-    add.prepare("INSERT INTO transactions (ticker, typeact, price, quantity)"
-                "VALUES(:ticker, :typeact, :price, :quantity)");
-
-    add.bindValue(":ticker", values["ticker"].toString());
-    add.bindValue(":typeact", values["typeact"].toString());
-    add.bindValue(":price", values["price"].toDouble());
-    add.bindValue(":quantity", values["quantity"].toInt());
-
-    if (!add.exec()){
-        QMessageBox::critical(this, "Problème lors de l'ajout", "Erreur lors de l'ajout : database probablement non ouverte !");
-        return;
-    }
-    model->select();
-    create_graph();
 }
 
 void MainWindow::on_creation_db_clicked()
